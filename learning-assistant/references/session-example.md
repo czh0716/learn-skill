@@ -67,3 +67,145 @@
 
 在整个会话中，Skill 在用户写代码时引导了一次 Copilot 功能 (Copilot 引导):
 > "你现在可以右键这段代码，选 Copilot → Explain，看看 AI 怎么解释这个 `.catch()` 的位置。先自己解释，再对比。"
+
+---
+
+## 对应归档示例
+
+> 以下是对应上述会话的归档文件。归档是详细学习笔记，不是摘要。写作标准：学员 2 周后翻开就能独立回顾，不需要翻聊天记录。
+
+```
+# Session 3 — 2026-03-18
+
+## 基本信息
+- **学习时长**: 45 分钟（完整会话）
+- **里程碑**: M2 JavaScript 异步编程
+- **学习主题**: Promise 错误处理（.catch()、.then() 第二个参数、try/catch + async/await）
+
+---
+
+## 学习过程
+
+### 1. Promise 错误处理的三种方式
+
+**教练引入**: 给一段没有 .catch() 的 Promise 链代码，故意让中间步骤失败——让我先观察现象再引出概念。
+
+**我的初始理解**: 之前只用过 .then()，以为 Promise 成功就继续，失败就不执行，没想过要处理错误。
+
+**精讲内容**: Promise 错误处理有 3 种方式：① `.catch()` — 链式捕获 ② `.then(onFulfilled, onRejected)` — 分别处理成功/失败 ③ `try/catch` + `async/await` — 同步风格写法。
+
+**跨技术概念映射**:
+
+| 已知技术 | 目标技术 | 关键差异 |
+|----------|---------|---------|
+| Node.js 回调 `(err, result)` | `.catch(err)` | 回调错误参数分叉 vs Promise 链统一捕获 |
+| Express 错误中间件 `next(err)` | `.catch(err)` | 都是"错误逐级传递"模式，但 Express 有 4 参数签名限制 |
+| Vue `try/catch` 包裹 API 调用 | `async/await` + `try/catch` | 结构完全一致，但 Promise 的 reject 必须被 catch 否则 unhandled rejection |
+
+**动手实验**:
+
+```javascript
+// 故意让中间步骤失败，看看会发生什么
+fetch('/api/user')
+  .then(res => res.json())
+  .then(data => {
+    throw new Error('数据库写入失败');  // 故意失败
+  })
+  .then(() => console.log('这行不会执行'))
+  .catch(err => console.error('捕获到:', err.message));
+```
+
+**运行结果**:
+```
+捕获到: 数据库写入失败
+```
+
+**我的发现**: 加了 .catch() 之后，不管哪个环节出错都能捕获到。而且 .catch() 后面的 .then() 不会执行——这个以前理解错了，以为 catch 之后会继续。
+
+**你知道吗**: Node.js 15+ 引入了 unhandledRejection 全局事件。如果没有 .catch()，Promise 的 reject 会触发这个事件，Node 默认行为是 warning，未来版本会直接 crash 进程。所以**生产代码所有 Promise 都该有 .catch()**。
+
+---
+
+### 2. 三种方式的选择场景
+
+**精讲内容**:
+- `.catch()`: 适合 Promise 链式调用，统一捕获链上所有错误
+- `.then(onFulfilled, onRejected)`: 适合需要区分"当前这一步的成功/失败"的场景
+- `try/catch` + `async/await`: 适合需要条件分支和多层 try 嵌套的场景
+
+**动手实验**:
+
+```javascript
+// 对比三种写法
+// 方式1: .catch()
+fetchData().then(process).catch(handleError);
+
+// 方式2: .then() 的两个参数
+fetchData().then(process, handleError);  
+// ⚠️ 这里 process 自己的错误不会被 handleError 捕获！
+
+// 方式3: try/catch
+async function main() {
+  try {
+    const data = await fetchData();
+    const result = await process(data);
+    return result;
+  } catch (err) {
+    handleError(err);
+  }
+}
+```
+
+**运行结果**: 方式2 的问题——process 函数内部的错误不会被 handleError 捕获（因为 onRejected 只处理 fetchData 的 reject）。
+
+**我的发现**: 原来 `.then(onFulfilled, onRejected)` 不一定等于 `.then(onFulfilled).catch(onRejected)`！这个是细节中的细节。
+
+---
+
+## 费曼检验
+
+**方式**: 方式①口头解释
+
+**学员输出**: ".catch() 就像一个安全网，Promise 不管在哪一步摔了，都会被这个安全网接住。跟 Express 的错误处理中间件一样——只要在最后面挂一个，前面所有路由的错误都会被收集。"
+
+**检验结果**: ✅ 通过——用自己的类比（Express 中间件）准确解释，且提到了"链上任何位置"这个关键点。
+
+---
+
+## 本节课学会的
+
+- Promise 错误处理三种方式各自适用场景
+- `.catch()` 统一捕获链上所有错误，推荐作为默认选择
+- `.then(onFulfilled, onRejected)` 只捕获上一个 Promise 的 reject，不捕获 onFulfilled 里的错误——这是个陷阱
+- `try/catch` + `async/await` 写起来跟同步代码一样，适合复杂条件分支
+
+## 还不确定的
+
+- Promise.all 里如果有一个 reject，其他 Promise 还在执行吗？
+- 微任务队列和错误传播的关系？（感觉讲快了一点点）
+
+## 踩到的坑
+
+| 遇到的问题 | 怎么解决的 | 经验教训 |
+|-----------|-----------|---------|
+| .catch() 放在中间位置时，后面的 .then() 还会执行 | 写代码实测——.catch() 后面的 .then() 确实会执行（因为 .catch() 返回新 Promise 且默认 resolve） | .catch() 放在链末尾才能兜底所有错误 |
+
+## 学习资料
+
+- [MDN — Promise.prototype.catch()](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Promise/catch) — 官方文档，看 "Description" 部分就行
+- [JavaScript.info — Promise 错误处理](https://javascript.info/promise-error-handling) — 有图解 .catch() 在链中的位置影响
+- [Node.js — unhandledRejection 事件](https://nodejs.org/api/process.html#event-unhandledrejection) — 了解就行，实际项目用 lint 规则 enforce
+
+## 下次想问的
+
+- Promise.all 的错误处理——一个失败全失败？
+- Promise.race 和 Promise.any 什么时候用？
+
+## 掌握度
+
+4/5 — 三种方式都会用，但方式2的陷阱在实际项目中容易踩——需要更多练习来内化选择直觉。
+
+## 进度
+
+M2 JavaScript 异步 [████████░░░░░░░░░░░░] 60%
+```
